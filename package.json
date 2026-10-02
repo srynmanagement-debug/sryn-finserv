@@ -1,0 +1,26 @@
+{
+  "name": "sryn-finserv",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SRYN FinServ — Production-Grade Financial Services Platform Monorepo",
+  "author": "SRYN FinServ Team",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "apps/*",
+    "backend",
+    "packages/*",
+    "infrastructure/cdk"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "build:packages": "npm run build --workspace=packages/types --workspace=packages/config --workspace=packages/validation --workspace=packages/ui",
+    "build:backend": "npm run build --workspace=backend",
+    "build:cdk": "npm run build --workspace=infrastructure/cdk",
+    "cdk:synth": "npm run cdk --workspace=infrastructure/cdk synth",
+    "lint": "echo \"Linting workspace...\"",
+    "verify": "node scripts/verify-foundation.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

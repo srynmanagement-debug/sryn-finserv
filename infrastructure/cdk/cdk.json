@@ -1,0 +1,17 @@
+{
+  "app": "node dist/bin/app.js",
+  "watch": {
+    "include": ["**"],
+    "exclude": [
+      "README.md",
+      "cdk.out",
+      "dist",
+      "node_modules"
+    ]
+  },
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/aws-s3:grantWriteWithoutAcl": true
+  }
+}
