@@ -139,7 +139,7 @@ export class DocumentsService {
 
     // Customer or Staff check
     const userRes = await this.db.query(
-      'SELECT r.name as role FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = $1',
+      'SELECT r.code as role FROM users u JOIN user_roles ur ON u.id = ur.user_id JOIN roles r ON ur.role_id = r.id WHERE u.id = $1',
       [userId]
     );
     const role = userRes.rows[0]?.role;
@@ -166,6 +166,68 @@ export class DocumentsService {
       rejectionReason: doc.rejection_reason || undefined,
       uploadedAt: doc.uploaded_at.toISOString(),
     }));
+  }
+
+  /**
+   * Verify or reject a document (Staff / Agent endpoint).
+   */
+  async verifyDocument(
+    staffUserId: string,
+    documentId: string,
+    status: 'VERIFIED' | 'REJECTED',
+    rejectionReason?: string
+  ): Promise<ApplicationDocument> {
+    const userRes = await this.db.query(
+      'SELECT r.code as role FROM users u JOIN user_roles ur ON u.id = ur.user_id JOIN roles r ON ur.role_id = r.id WHERE u.id = $1',
+      [staffUserId]
+    );
+    const role = userRes.rows[0]?.role;
+
+    if (!['SUPER_ADMIN', 'MANAGER', 'TEAM_LEADER', 'AGENT'].includes(role)) {
+      throw new ForbiddenError('Unauthorized: Only staff members can verify documents');
+    }
+
+    const docRes = await this.db.query(
+      'SELECT * FROM application_documents WHERE id = $1',
+      [documentId]
+    );
+
+    if (docRes.rows.length === 0) {
+      throw new NotFoundError('Document not found');
+    }
+
+    const res = await this.db.query(
+      `UPDATE application_documents SET status = $1, rejection_reason = $2 WHERE id = $3 RETURNING *`,
+      [status, rejectionReason || null, documentId]
+    );
+
+    const doc = res.rows[0];
+
+    await auditService.logEvent({
+      actorUserId: staffUserId,
+      action: status === 'VERIFIED' ? 'DOCUMENT_VERIFIED' : 'DOCUMENT_REJECTED',
+      entityType: 'application_documents',
+      entityId: doc.id,
+      metadata: {
+        applicationId: doc.application_id,
+        status,
+        rejectionReason,
+      },
+    });
+
+    return {
+      id: doc.id,
+      applicationId: doc.application_id,
+      documentType: doc.document_type,
+      s3Key: doc.s3_key,
+      fileName: doc.file_name,
+      fileSizeBytes: Number(doc.file_size_bytes),
+      mimeType: doc.mime_type,
+      uploadedByUserId: doc.uploaded_by_user_id,
+      status: doc.status,
+      rejectionReason: doc.rejection_reason || undefined,
+      uploadedAt: doc.uploaded_at.toISOString(),
+    };
   }
 }
 

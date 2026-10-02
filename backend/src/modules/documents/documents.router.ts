@@ -34,3 +34,14 @@ documentsRouter.get('/application/:applicationId', async (req: AuthenticatedRequ
     next(err);
   }
 });
+
+// Verify or reject document (Staff operation)
+documentsRouter.post('/:id/verify', async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { status, rejectionReason } = req.body;
+    const result = await documentsService.verifyDocument(req.user!.id, req.params.id, status, rejectionReason);
+    return sendSuccess(res, result, `Document status updated to ${status}`);
+  } catch (err) {
+    next(err);
+  }
+});

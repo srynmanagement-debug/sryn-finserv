@@ -6,6 +6,7 @@ import { up003 } from './migrations/003_commissions_and_audit';
 import { up004 } from './migrations/004_form_schemas_and_partners';
 import { up005 } from './migrations/005_pricing_and_commission_engine';
 import { up006 } from './migrations/006_customer_applications_and_documents';
+import { up007 } from './migrations/007_partner_onboarding_and_network';
 
 export interface MigrationDef {
   version: string;
@@ -20,6 +21,7 @@ export const MIGRATIONS: MigrationDef[] = [
   { version: '004', name: 'form_schemas_and_partners_tables', up: up004 },
   { version: '005', name: 'pricing_and_commission_engine_tables', up: up005 },
   { version: '006', name: 'customer_applications_and_documents_tables', up: up006 },
+  { version: '007', name: 'partner_onboarding_and_network', up: up007 },
 ];
 
 export async function runMigrations(): Promise<{ executed: string[]; skipped: string[] }> {

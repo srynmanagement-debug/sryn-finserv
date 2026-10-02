@@ -24,19 +24,39 @@ void main() {
       expect(product.eligibilityRules.length, equals(1));
     });
 
-    test('FormFieldSchema and FormStepSchema should parse JSON correctly', () {
-      final stepJson = {
-        'stepNumber': 1,
-        'title': 'Personal Details',
-        'fields': [
-          {'fieldKey': 'fullName', 'label': 'Full Name', 'fieldType': 'TEXT', 'isRequired': true},
-        ],
+    test('FormFieldSchema should support conditional dependencies and multi-select', () {
+      final fieldJson = {
+        'fieldKey': 'existingLoanDetails',
+        'label': 'Loan Details',
+        'fieldType': 'MULTI_SELECT',
+        'isRequired': true,
+        'options': ['Home Loan', 'Car Loan', 'Personal Loan'],
+        'dependsOnField': 'hasExistingLoans',
+        'dependsOnValue': 'true',
       };
 
-      final step = FormStepSchema.fromJson(stepJson);
-      expect(step.title, equals('Personal Details'));
-      expect(step.fields.first.fieldKey, equals('fullName'));
-      expect(step.fields.first.isRequired, isTrue);
+      final field = FormFieldSchema.fromJson(fieldJson);
+      expect(field.fieldKey, equals('existingLoanDetails'));
+      expect(field.fieldType, equals('MULTI_SELECT'));
+      expect(field.dependsOnField, equals('hasExistingLoans'));
+      expect(field.dependsOnValue, equals('true'));
+      expect(field.options?.length, equals(3));
+    });
+
+    test('UserProfileModel should parse user profile response correctly', () {
+      final userJson = {
+        'id': 'user-123',
+        'email': 'customer@sryn.local',
+        'role': 'CUSTOMER',
+        'full_name': 'John Doe',
+        'phone_number': '+919876543210',
+        'is_active': true,
+      };
+
+      final user = UserProfileModel.fromJson(userJson);
+      expect(user.id, equals('user-123'));
+      expect(user.fullName, equals('John Doe'));
+      expect(user.role, equals('CUSTOMER'));
     });
 
     test('ApiService preliminary eligibility preview should evaluate rules', () async {
@@ -52,7 +72,7 @@ void main() {
 
       expect(res['isEligible'], isTrue);
       expect(res['isPreliminary'], isTrue);
-      expect(res['disclaimer'], contains('preliminary estimation'));
+      expect((res['disclaimer'] as String).toLowerCase(), contains('preliminary estimation'));
     });
 
     test('ApiService preliminary eligibility should reject ineligible criteria', () async {
@@ -68,6 +88,46 @@ void main() {
 
       expect(res['isEligible'], isFalse);
       expect(res['estimatedMaxAmount'], equals(0));
+    });
+
+    test('ApiService draft creation and idempotent submission flow', () async {
+      final api = ApiService();
+      final draft = await api.saveDraft(
+        productId: '00000000-0000-0000-0000-000000000001',
+        formData: {'fullName': 'Jane Doe', 'monthlyIncome': 60000},
+        currentStep: 1,
+      );
+
+      expect(draft.currentStatus, equals('DRAFT'));
+      expect(draft.formData['fullName'], equals('Jane Doe'));
+
+      final submitted = await api.submitApplication(
+        applicationId: draft.id,
+        submissionIdempotencyKey: 'idemp_key_test_123',
+        formData: {'fullName': 'Jane Doe', 'monthlyIncome': 60000},
+      );
+
+      expect(submitted.currentStatus, equals('SUBMITTED'));
+      expect(submitted.submissionIdempotencyKey, equals('idemp_key_test_123'));
+    });
+
+    test('ApiService resubmission for ADDITIONAL_INFORMATION_REQUIRED status', () async {
+      final api = ApiService();
+      final draft = await api.saveDraft(
+        productId: '00000000-0000-0000-0000-000000000001',
+        formData: {'fullName': 'John Doe'},
+        currentStep: 2,
+      );
+
+      final resubmitted = await api.resubmitApplication(
+        applicationId: draft.id,
+        formData: {'fullName': 'John Doe', 'updatedPan': 'ABCDE1234F'},
+        resubmissionNotes: 'Updated PAN Card details provided',
+      );
+
+      expect(resubmitted.currentStatus, equals('RESUBMITTED'));
+      expect(resubmitted.statusHistory.last.newStatus, equals('RESUBMITTED'));
+      expect(resubmitted.statusHistory.last.notes, contains('Updated PAN'));
     });
   });
 

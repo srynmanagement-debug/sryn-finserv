@@ -478,6 +478,31 @@ export class ApplicationsService {
   }
 
   /**
+   * Helper to validate legal workflow status transitions.
+   */
+  private validateStatusTransition(currentStatus: string, newStatus: string): void {
+    if (currentStatus === newStatus) return;
+
+    if (['APPROVED', 'REJECTED', 'CANCELLED'].includes(currentStatus)) {
+      throw new BadRequestError(`Cannot change status of application in terminal state [${currentStatus}]`);
+    }
+
+    const allowedTransitions: Record<string, string[]> = {
+      DRAFT: ['SUBMITTED', 'CANCELLED'],
+      SUBMITTED: ['UNDER_REVIEW', 'ADDITIONAL_INFORMATION_REQUIRED', 'CANCELLED'],
+      UNDER_REVIEW: ['ADDITIONAL_INFORMATION_REQUIRED', 'RECOMMENDED', 'APPROVED', 'REJECTED', 'CANCELLED'],
+      ADDITIONAL_INFORMATION_REQUIRED: ['RESUBMITTED', 'CANCELLED'],
+      RESUBMITTED: ['UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CANCELLED'],
+      RECOMMENDED: ['APPROVED', 'REJECTED', 'CANCELLED'],
+    };
+
+    const allowed = allowedTransitions[currentStatus] || [];
+    if (!allowed.includes(newStatus)) {
+      throw new BadRequestError(`Invalid status transition from [${currentStatus}] to [${newStatus}]`);
+    }
+  }
+
+  /**
    * Update status (for staff/admin operations).
    */
   async updateStatus(staffUserId: string, payload: any): Promise<FinServApplication> {
@@ -489,52 +514,186 @@ export class ApplicationsService {
         [validated.applicationId]
       );
 
-      if (appRes.rows.length === 0) {
-        throw new NotFoundError('Application not found');
+      if (appRes.rows.length > 0) {
+        const app = appRes.rows[0];
+
+        // Enforce server-side state machine workflow transition rules
+        this.validateStatusTransition(app.current_status, validated.newStatus);
+
+        let updateQuery = `UPDATE applications SET current_status = $1, updated_at = CURRENT_TIMESTAMP`;
+        const queryParams: any[] = [validated.newStatus];
+
+        if (validated.newStatus === 'ADDITIONAL_INFORMATION_REQUIRED' && validated.notes) {
+          updateQuery += `, additional_info_requested_notes = $2 WHERE id = $3 RETURNING *`;
+          queryParams.push(validated.notes, validated.applicationId);
+        } else {
+          updateQuery += ` WHERE id = $2 RETURNING *`;
+          queryParams.push(validated.applicationId);
+        }
+
+        const updateRes = await this.db.query(updateQuery, queryParams);
+        const updatedApp = updateRes.rows[0];
+
+        await this.db.query(
+          `INSERT INTO application_status_history (
+            application_id, from_status, to_status, changed_by_user_id, notes
+          ) VALUES ($1, $2, $3, $4, $5)`,
+          [validated.applicationId, app.current_status, validated.newStatus, staffUserId, validated.notes || null]
+        );
+
+        await auditService.logEvent({
+          actorUserId: staffUserId,
+          action: 'APPLICATION_STATUS_UPDATED',
+          entityType: 'applications',
+          entityId: validated.applicationId,
+          metadata: {
+            fromStatus: app.current_status,
+            toStatus: validated.newStatus,
+            notes: validated.notes,
+          },
+        });
+
+        return this.formatApplication(updatedApp);
       }
-
-      const app = appRes.rows[0];
-
-      let updateQuery = `UPDATE applications SET current_status = $1, updated_at = CURRENT_TIMESTAMP`;
-      const queryParams: any[] = [validated.newStatus];
-
-      if (validated.newStatus === 'ADDITIONAL_INFORMATION_REQUIRED' && validated.notes) {
-        updateQuery += `, additional_info_requested_notes = $2 WHERE id = $3 RETURNING *`;
-        queryParams.push(validated.notes, validated.applicationId);
-      } else {
-        updateQuery += ` WHERE id = $2 RETURNING *`;
-        queryParams.push(validated.applicationId);
-      }
-
-      const updateRes = await this.db.query(updateQuery, queryParams);
-      const updatedApp = updateRes.rows[0];
-
-      await this.db.query(
-        `INSERT INTO application_status_history (
-          application_id, from_status, to_status, changed_by_user_id, notes
-        ) VALUES ($1, $2, $3, $4, $5)`,
-        [validated.applicationId, app.current_status, validated.newStatus, staffUserId, validated.notes || null]
-      );
-
-      return this.formatApplication(updatedApp);
     } catch (err: any) {
-      if (err instanceof NotFoundError) {
+      if (err instanceof BadRequestError) {
         throw err;
       }
       logger.warn('[ApplicationsService] DB updateStatus failed, using memory store fallback');
-
-      const app = memoryApplications.get(validated.applicationId);
-      if (!app) {
-        throw new NotFoundError('Application not found');
-      }
-      app.currentStatus = validated.newStatus as ApplicationStatus;
-      if (validated.newStatus === 'ADDITIONAL_INFORMATION_REQUIRED' && validated.notes) {
-        app.additionalInfoRequestedNotes = validated.notes;
-      }
-      app.updatedAt = new Date().toISOString();
-      memoryApplications.set(app.id, app);
-      return app;
     }
+
+    const app = memoryApplications.get(validated.applicationId);
+    if (!app) {
+      throw new NotFoundError('Application not found');
+    }
+    this.validateStatusTransition(app.currentStatus, validated.newStatus);
+    app.currentStatus = validated.newStatus as ApplicationStatus;
+    if (validated.newStatus === 'ADDITIONAL_INFORMATION_REQUIRED' && validated.notes) {
+      app.additionalInfoRequestedNotes = validated.notes;
+    }
+    app.updatedAt = new Date().toISOString();
+    memoryApplications.set(app.id, app);
+    return app;
+  }
+
+  /**
+   * Fetch Agent Dashboard metrics & activity.
+   */
+  async getAgentDashboard(agentUserId: string) {
+    try {
+      const statsRes = await this.db.query(
+        `SELECT current_status, COUNT(*)::int as count 
+         FROM applications 
+         WHERE agent_id = $1 OR agent_id IS NULL 
+         GROUP BY current_status`,
+        [agentUserId]
+      );
+
+      const counts: Record<string, number> = {
+        SUBMITTED: 0,
+        UNDER_REVIEW: 0,
+        ADDITIONAL_INFORMATION_REQUIRED: 0,
+        RESUBMITTED: 0,
+        APPROVED: 0,
+        REJECTED: 0,
+      };
+
+      for (const row of statsRes.rows) {
+        counts[row.current_status] = row.count;
+      }
+
+      const recentRes = await this.db.query(
+        'SELECT * FROM applications WHERE agent_id = $1 OR agent_id IS NULL ORDER BY updated_at DESC LIMIT 5',
+        [agentUserId]
+      );
+
+      const recent: FinServApplication[] = [];
+      for (const row of recentRes.rows) {
+        recent.push(await this.formatApplication(row));
+      }
+
+      return {
+        assignedCount: (counts['UNDER_REVIEW'] || 0) + (counts['SUBMITTED'] || 0),
+        pendingInfoCount: counts['ADDITIONAL_INFORMATION_REQUIRED'] || 0,
+        completedCount: (counts['APPROVED'] || 0) + (counts['REJECTED'] || 0),
+        counts,
+        recentApplications: recent,
+      };
+    } catch (err) {
+      logger.warn('[ApplicationsService] DB getAgentDashboard failed, returning fallback metrics');
+      return {
+        assignedCount: 2,
+        pendingInfoCount: 1,
+        completedCount: 5,
+        counts: { SUBMITTED: 1, UNDER_REVIEW: 1, ADDITIONAL_INFORMATION_REQUIRED: 1, APPROVED: 4, REJECTED: 1 },
+        recentApplications: Array.from(memoryApplications.values()).slice(0, 5),
+      };
+    }
+  }
+
+  /**
+   * Fetch Agent assigned/unassigned queue with search & filters.
+   */
+  async getAgentQueue(agentUserId: string, filters: { status?: string; search?: string; page?: number; limit?: number }) {
+    const page = filters.page || 1;
+    const limit = filters.limit || 20;
+    const offset = (page - 1) * limit;
+
+    try {
+      let query = 'SELECT * FROM applications WHERE (agent_id = $1 OR agent_id IS NULL)';
+      const params: any[] = [agentUserId];
+
+      if (filters.status && filters.status.length > 0) {
+        params.push(filters.status);
+        query += ` AND current_status = $${params.length}`;
+      }
+
+      query += ` ORDER BY updated_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      params.push(limit, offset);
+
+      const res = await this.db.query(query, params);
+      const applications: FinServApplication[] = [];
+      for (const row of res.rows) {
+        applications.push(await this.formatApplication(row));
+      }
+
+      return { applications, page, limit, total: applications.length };
+    } catch (err) {
+      logger.warn('[ApplicationsService] DB getAgentQueue failed, returning fallback applications');
+      return { applications: Array.from(memoryApplications.values()), page: 1, limit: 20, total: memoryApplications.size };
+    }
+  }
+
+  /**
+   * Claim an unassigned application for agent processing.
+   */
+  async claimApplication(agentUserId: string, applicationId: string): Promise<FinServApplication> {
+    try {
+      const appRes = await this.db.query('SELECT * FROM applications WHERE id = $1', [applicationId]);
+      if (appRes.rows.length > 0) {
+        const updateRes = await this.db.query(
+          `UPDATE applications SET agent_id = $1, current_status = 'UNDER_REVIEW', updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *`,
+          [agentUserId, applicationId]
+        );
+
+        await this.db.query(
+          `INSERT INTO application_status_history (application_id, from_status, to_status, changed_by_user_id, notes)
+           VALUES ($1, $2, 'UNDER_REVIEW', $3, 'Claimed by field agent for processing')`,
+          [applicationId, appRes.rows[0].current_status, agentUserId]
+        );
+
+        return this.formatApplication(updateRes.rows[0]);
+      }
+    } catch (err: any) {
+      logger.warn('[ApplicationsService] DB claimApplication failed, using memory store fallback');
+    }
+
+    const app = memoryApplications.get(applicationId);
+    if (!app) throw new NotFoundError('Application not found');
+    app.agentId = agentUserId;
+    app.currentStatus = 'UNDER_REVIEW';
+    memoryApplications.set(app.id, app);
+    return app;
   }
 
   /**

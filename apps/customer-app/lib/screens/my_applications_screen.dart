@@ -95,7 +95,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: statusColor.withOpacity(0.1),
+                                  color: statusColor.withAlpha(25),
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(color: statusColor),
                                 ),

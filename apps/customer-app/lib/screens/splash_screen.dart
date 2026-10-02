@@ -32,7 +32,7 @@ class _SplashScreenState extends State<SplashScreen> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.1),
+                color: Colors.white.withAlpha(25),
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.account_balance_wallet, size: 72, color: Colors.blueAccent),

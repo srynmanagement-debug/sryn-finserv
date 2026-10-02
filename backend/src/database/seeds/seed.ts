@@ -100,6 +100,43 @@ export async function seedDatabase(): Promise<void> {
       );
     }
 
+    // Seed default Manager user
+    const mgrEmail = 'manager@sryn.local';
+    const mgrHash = await bcrypt.hash('Manager@Sryn2026', 10);
+    const mgrRes = await client.query(
+      `INSERT INTO users (email, password_hash, first_name, last_name, phone, is_active)
+       VALUES ($1, $2, 'Regional', 'Manager', '9888800001', true)
+       ON CONFLICT (email) DO UPDATE SET first_name = EXCLUDED.first_name
+       RETURNING id;`,
+      [mgrEmail, mgrHash]
+    );
+    const mgrUserId = mgrRes.rows[0].id;
+    if (roleMap[SYSTEM_ROLES.MANAGER]) {
+      await client.query(`INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;`, [mgrUserId, roleMap[SYSTEM_ROLES.MANAGER]]);
+    }
+
+    // Seed default Team Leader user
+    const tlEmail = 'tl@sryn.local';
+    const tlHash = await bcrypt.hash('TeamLeader@Sryn2026', 10);
+    const tlRes = await client.query(
+      `INSERT INTO users (email, password_hash, first_name, last_name, phone, is_active)
+       VALUES ($1, $2, 'Team', 'Leader', '9888800002', true)
+       ON CONFLICT (email) DO UPDATE SET first_name = EXCLUDED.first_name
+       RETURNING id;`,
+      [tlEmail, tlHash]
+    );
+    const tlUserId = tlRes.rows[0].id;
+    if (roleMap[SYSTEM_ROLES.TEAM_LEADER]) {
+      await client.query(`INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;`, [tlUserId, roleMap[SYSTEM_ROLES.TEAM_LEADER]]);
+    }
+
+    // Link TL reporting to Manager
+    await client.query(
+      `INSERT INTO user_reporting (user_id, manager_id) VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET manager_id = EXCLUDED.manager_id;`,
+      [tlUserId, mgrUserId]
+    );
+
     await client.query('COMMIT');
     logger.info('Database seeding completed successfully.');
   } catch (error) {

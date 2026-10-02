@@ -65,6 +65,42 @@ applicationsRouter.post('/status', async (req: AuthenticatedRequest, res, next) 
   }
 });
 
+// Agent Dashboard metrics
+applicationsRouter.get('/agent/dashboard', async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const result = await applicationsService.getAgentDashboard(req.user!.id);
+    return sendSuccess(res, result, 'Agent dashboard metrics retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Agent assigned application queue
+applicationsRouter.get('/agent/queue', async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { status, search, page, limit } = req.query;
+    const result = await applicationsService.getAgentQueue(req.user!.id, {
+      status: status as string,
+      search: search as string,
+      page: page ? parseInt(page as string, 10) : 1,
+      limit: limit ? parseInt(limit as string, 10) : 20,
+    });
+    return sendSuccess(res, result, 'Agent queue retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Claim application for agent processing
+applicationsRouter.post('/:id/claim', async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const result = await applicationsService.claimApplication(req.user!.id, req.params.id);
+    return sendSuccess(res, result, 'Application claimed for processing');
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Cancel application
 applicationsRouter.post('/:id/cancel', async (req: AuthenticatedRequest, res, next) => {
   try {

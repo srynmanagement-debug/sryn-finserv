@@ -1,12 +1,15 @@
 class FormFieldSchema {
   final String fieldKey;
   final String label;
-  final String fieldType; // TEXT, NUMBER, EMAIL, PHONE, DATE, DROPDOWN, CHECKBOX, FILE_UPLOAD
+  final String fieldType; // TEXT, NUMBER, EMAIL, PHONE, DATE, DROPDOWN, CHECKBOX, FILE_UPLOAD, MULTI_SELECT, RADIO
   final bool isRequired;
   final String? placeholder;
   final List<String>? options;
   final String? defaultValue;
   final String? helpText;
+  final String? dependsOnField;
+  final String? dependsOnValue;
+  final String? validationRegex;
 
   FormFieldSchema({
     required this.fieldKey,
@@ -17,6 +20,9 @@ class FormFieldSchema {
     this.options,
     this.defaultValue,
     this.helpText,
+    this.dependsOnField,
+    this.dependsOnValue,
+    this.validationRegex,
   });
 
   factory FormFieldSchema.fromJson(Map<String, dynamic> json) {
@@ -29,6 +35,9 @@ class FormFieldSchema {
       options: json['options'] != null ? List<String>.from(json['options']) : null,
       defaultValue: json['defaultValue'],
       helpText: json['helpText'],
+      dependsOnField: json['dependsOnField'] ?? json['dependsOn'],
+      dependsOnValue: json['dependsOnValue']?.toString(),
+      validationRegex: json['validationRegex'] ?? json['pattern'],
     );
   }
 }

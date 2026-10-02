@@ -15,6 +15,8 @@ import { formsRouter } from '../modules/forms/forms.router';
 import { workflowsRouter } from '../modules/workflows/workflows.router';
 import { auditRouter } from '../modules/audit/audit.router';
 import { documentsRouter } from '../modules/documents/documents.router';
+import { partnersRouter } from '../modules/partners/partners.router';
+import { hierarchyRouter } from '../modules/hierarchy/hierarchy.router';
 import { DatabaseConnection } from '../database/connection';
 import { sendSuccess } from '../common/utils/response.util';
 
@@ -64,6 +66,8 @@ export function createApp(): express.Application {
   apiRouter.use('/forms', formsRouter);
   apiRouter.use('/workflows', workflowsRouter);
   apiRouter.use('/audit', auditRouter);
+  apiRouter.use('/partners', partnersRouter);
+  apiRouter.use('/hierarchy', hierarchyRouter);
 
   app.use(envConfig.apiPrefix, apiRouter);
 
