@@ -9,6 +9,7 @@ export interface EnvironmentConfig {
   rdsInstanceType: string;
   multiAzDb: boolean;
   corsAllowedOrigins: string[];
+  ecsDesiredCount?: number;
 }
 
 export const DEFAULT_AWS_REGION = 'ap-south-1'; // Mumbai
@@ -24,6 +25,7 @@ export const environments: Record<string, EnvironmentConfig> = {
     rdsInstanceType: 't4g.micro',
     multiAzDb: false,
     corsAllowedOrigins: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:8080'],
+    ecsDesiredCount: 0,
   },
   staging: {
     environment: 'staging',
@@ -39,6 +41,7 @@ export const environments: Record<string, EnvironmentConfig> = {
       'https://staging-tl.sryn.co.in',
       'https://staging-manager.sryn.co.in',
     ],
+    ecsDesiredCount: 0,
   },
   production: {
     environment: 'production',

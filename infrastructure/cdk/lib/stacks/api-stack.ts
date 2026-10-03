@@ -184,12 +184,12 @@ export class ApiStack extends cdk.Stack {
         DB_HOST: dbInstance.dbInstanceEndpointAddress,
         DB_PORT: dbInstance.dbInstanceEndpointPort.toString(),
         DB_NAME: `sryn_finserv_${config.environment}`,
-        DB_USER: 'sryn_db_user',
         COGNITO_USER_POOL_ID: userPool.userPoolId,
         COGNITO_CLIENT_ID: userPoolClient.userPoolClientId,
         S3_DOCUMENT_BUCKET: documentBucket.bucketName,
       },
       secrets: {
+        DB_USER: ecs.Secret.fromSecretsManager(importedDbSecret, 'username'),
         DB_PASSWORD: ecs.Secret.fromSecretsManager(importedDbSecret, 'password'),
       },
       healthCheck: {
@@ -201,11 +201,14 @@ export class ApiStack extends cdk.Stack {
       },
     });
 
-    // 7. Fargate Service
+    // 7. Fargate Service (desiredCount defaults to 0 for safe migration-before-traffic deployments)
+    const contextDesiredCount = this.node.tryGetContext('desiredCount');
+    const desiredCount = contextDesiredCount !== undefined ? parseInt(contextDesiredCount, 10) : (config.ecsDesiredCount ?? 0);
+
     this.fargateService = new ecs.FargateService(this, 'BackendFargateService', {
       cluster: this.ecsCluster,
       taskDefinition: fargateTaskDef,
-      desiredCount: 1,
+      desiredCount,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       securityGroups: [this.ecsTaskSecurityGroup],
       circuitBreaker: { rollback: true },
@@ -298,11 +301,47 @@ export class ApiStack extends cdk.Stack {
         DB_HOST: dbInstance.dbInstanceEndpointAddress,
         DB_PORT: dbInstance.dbInstanceEndpointPort.toString(),
         DB_NAME: `sryn_finserv_${config.environment}`,
-        DB_USER: 'sryn_db_user',
       },
       secrets: {
+        DB_USER: ecs.Secret.fromSecretsManager(importedDbSecret, 'username'),
         DB_PASSWORD: ecs.Secret.fromSecretsManager(importedDbSecret, 'password'),
       },
+    });
+
+    // 11. Stack CfnOutputs for Operation Verification & Automation
+    new cdk.CfnOutput(this, 'HttpApiEndpoint', {
+      value: this.httpApi.apiEndpoint,
+      description: 'API Gateway HTTP API Endpoint URL',
+    });
+
+    new cdk.CfnOutput(this, 'EcsClusterName', {
+      value: this.ecsCluster.clusterName,
+      description: 'ECS Cluster Name',
+    });
+
+    new cdk.CfnOutput(this, 'EcsServiceName', {
+      value: this.fargateService.serviceName,
+      description: 'ECS Fargate Service Name',
+    });
+
+    new cdk.CfnOutput(this, 'MigrationTaskDefinitionArn', {
+      value: this.migrationTaskDef.taskDefinitionArn,
+      description: 'Database Migration Task Definition ARN',
+    });
+
+    new cdk.CfnOutput(this, 'MigrationTaskFamily', {
+      value: this.migrationTaskDef.family,
+      description: 'Database Migration Task Definition Family',
+    });
+
+    new cdk.CfnOutput(this, 'EcsTaskSecurityGroupId', {
+      value: this.ecsTaskSecurityGroup.securityGroupId,
+      description: 'ECS Task Security Group ID',
+    });
+
+    new cdk.CfnOutput(this, 'PrivateSubnetIds', {
+      value: vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }).subnetIds.join(','),
+      description: 'Private Compute Subnet IDs for One-Off Task Execution',
     });
 
     cdk.Tags.of(this).add('Project', 'SRYN-FinServ');

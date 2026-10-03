@@ -1,12 +1,14 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as rds from 'aws-cdk-lib/aws-rds';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
 import { EnvironmentConfig } from '../../config/environment';
 
 export interface DatabaseStackProps extends cdk.StackProps {
   config: EnvironmentConfig;
   vpc: ec2.Vpc;
+  dbSecret: secretsmanager.Secret;
 }
 
 export class DatabaseStack extends cdk.Stack {
@@ -16,7 +18,13 @@ export class DatabaseStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
     super(scope, id, props);
 
-    const { config, vpc } = props;
+    const { config, vpc, dbSecret } = props;
+
+    const importedDbSecret = secretsmanager.Secret.fromSecretPartialArn(
+      this,
+      'ImportedDbSecret',
+      dbSecret.secretArn
+    );
 
     this.dbSecurityGroup = new ec2.SecurityGroup(this, 'DatabaseSecurityGroup', {
       vpc,
@@ -34,6 +42,7 @@ export class DatabaseStack extends cdk.Stack {
       allocatedStorage: config.rdsAllocatedStorageGb,
       maxAllocatedStorage: config.rdsAllocatedStorageGb * 2,
       databaseName: `sryn_finserv_${config.environment}`,
+      credentials: rds.Credentials.fromSecret(importedDbSecret),
       multiAz: config.multiAzDb,
       storageEncrypted: true,
       securityGroups: [this.dbSecurityGroup],
