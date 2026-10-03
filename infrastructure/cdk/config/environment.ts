@@ -8,6 +8,7 @@ export interface EnvironmentConfig {
   rdsAllocatedStorageGb: number;
   rdsInstanceType: string;
   multiAzDb: boolean;
+  corsAllowedOrigins: string[];
 }
 
 export const DEFAULT_AWS_REGION = 'ap-south-1'; // Mumbai
@@ -20,8 +21,9 @@ export const environments: Record<string, EnvironmentConfig> = {
     enableNatGateway: false, // ZERO NAT Gateways for dev cost control
     natGatewaysCount: 0,
     rdsAllocatedStorageGb: 20,
-    rdsInstanceType: 'db.t4g.micro',
+    rdsInstanceType: 't4g.micro',
     multiAzDb: false,
+    corsAllowedOrigins: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:8080'],
   },
   staging: {
     environment: 'staging',
@@ -30,8 +32,13 @@ export const environments: Record<string, EnvironmentConfig> = {
     enableNatGateway: true,
     natGatewaysCount: 1,
     rdsAllocatedStorageGb: 50,
-    rdsInstanceType: 'db.t4g.small',
+    rdsInstanceType: 't4g.small',
     multiAzDb: false,
+    corsAllowedOrigins: [
+      'https://staging-admin.sryn.co.in',
+      'https://staging-tl.sryn.co.in',
+      'https://staging-manager.sryn.co.in',
+    ],
   },
   production: {
     environment: 'production',
@@ -40,7 +47,12 @@ export const environments: Record<string, EnvironmentConfig> = {
     enableNatGateway: true,
     natGatewaysCount: 2,
     rdsAllocatedStorageGb: 100,
-    rdsInstanceType: 'db.m6g.large',
+    rdsInstanceType: 'm6g.large',
     multiAzDb: true,
+    corsAllowedOrigins: [
+      'https://admin.sryn.co.in',
+      'https://tl.sryn.co.in',
+      'https://manager.sryn.co.in',
+    ],
   },
 };

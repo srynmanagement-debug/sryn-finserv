@@ -26,7 +26,23 @@ const networkStack = new NetworkStack(app, `${prefix}-NetworkStack`, { env, conf
 const authStack = new AuthStack(app, `${prefix}-AuthStack`, { env, config });
 const storageStack = new StorageStack(app, `${prefix}-StorageStack`, { env, config });
 const databaseStack = new DatabaseStack(app, `${prefix}-DatabaseStack`, { env, config, vpc: networkStack.vpc });
-const apiStack = new ApiStack(app, `${prefix}-ApiStack`, { env, config, vpc: networkStack.vpc });
+const apiStack = new ApiStack(app, `${prefix}-ApiStack`, {
+  env,
+  config,
+  vpc: networkStack.vpc,
+  dbSecret: securityStack.dbSecret,
+  kmsKey: securityStack.kmsKey,
+  userPool: authStack.userPool,
+  userPoolClient: authStack.userPoolClient,
+  documentBucket: storageStack.documentBucket,
+  dbInstance: databaseStack.dbInstance,
+  dbSecurityGroup: databaseStack.dbSecurityGroup,
+  webAclArn: securityStack.webAcl.attrArn,
+});
 
 databaseStack.addStackDependency(networkStack);
 apiStack.addStackDependency(networkStack);
+apiStack.addStackDependency(securityStack);
+apiStack.addStackDependency(authStack);
+apiStack.addStackDependency(storageStack);
+apiStack.addStackDependency(databaseStack);

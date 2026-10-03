@@ -16,12 +16,14 @@
   - [x] Web app `apps/admin-web` built cleanly via Next.js.
   - [x] Web app `apps/team-leader-web` built cleanly via Next.js.
   - [x] Web app `apps/manager-web` built cleanly via Next.js.
+  - [x] Backend `backend/Dockerfile` created for multi-stage container build.
 
 - [x] **Database & Migration Readiness:**
   - [x] All 7 database migration files (`001` to `007`) verified in sequential version order.
   - [x] Local PostgreSQL database `sryn_finserv_db` has applied migrations 001–007 cleanly.
   - [x] Verified 24 tables, 65 indexes, and 45 foreign key constraints.
   - [x] Migration runner `backend/dist/database/runner.js` supports idempotent execution (`schema_migrations` tracking).
+  - [x] Ephemeral ECS Fargate migration task definition (`MigrationTaskDef`) created in `ApiStack` for in-VPC execution.
 
 - [x] **Automated Testing Suite Verification:**
   - [x] Backend Jest test suite: **16/16 test suites passed, 74/74 tests passed**.
@@ -34,16 +36,17 @@
   - [x] Development seed script (`seed.ts`) strictly disabled when `NODE_ENV === 'production'`.
   - [x] Express error middleware hides database tracebacks and internal stack traces in production.
   - [x] RBAC middleware enforces role and permission checks on protected endpoints.
+  - [x] AWS WAF Web ACL (`SrynWebAcl`) with Rate Limiting (2000 req / 5 min), Common Rule Set, and SQLi Rule Set associated with ALB.
   - [x] Sensitivity check: No passwords or unhashed secrets committed to repository.
 
 - [x] **AWS CDK Infrastructure Synthesis:**
   - [x] Synthesized CDK stacks for staging environment (`npx cdk synth -c env=staging`).
-  - [x] Stack `Sryn-staging-SecurityStack` validated.
+  - [x] Stack `Sryn-staging-SecurityStack` validated (KMS Key, Secrets Manager, WAF Web ACL).
   - [x] Stack `Sryn-staging-NetworkStack` validated (VPC `10.1.0.0/16`, 2 AZs, 1 NAT Gateway).
   - [x] Stack `Sryn-staging-AuthStack` validated (Cognito User Pool & App Clients).
   - [x] Stack `Sryn-staging-StorageStack` validated (S3 buckets with AES-256 SSE & CORS).
-  - [x] Stack `Sryn-staging-DatabaseStack` validated (RDS PostgreSQL `db.t4g.small`).
-  - [x] Stack `Sryn-staging-ApiStack` validated (API Gateway / App Runner compute).
+  - [x] Stack `Sryn-staging-DatabaseStack` validated (RDS PostgreSQL `db.t4g.small`, Storage Encrypted).
+  - [x] Stack `Sryn-staging-ApiStack` validated (ECS Fargate, ALB, Target Group, VPC Link, HTTP API, Ingress SG rule).
 
 ---
 
@@ -52,16 +55,20 @@
 > [!IMPORTANT]
 > The following steps describe the execution sequence for the devops pipeline when launching live staging infrastructure in AWS `ap-south-1`.
 
-### Step 1: AWS Credentials & Secrets Configuration
+### Step 1: AWS Credentials & Container Image Build
 1. Configure AWS CLI credentials for `ap-south-1`:
    ```bash
    aws configure set region ap-south-1
    ```
-2. Populate staging database credentials in AWS Secrets Manager:
+2. Build Docker container image for backend monolith:
    ```bash
-   aws secretsmanager create-secret \
-     --name /sryn/staging/db-credentials \
-     --secret-string '{"username":"sryn_staging_user","password":"<SECURE_STAGING_PASSWORD>"}'
+   docker build -t sryn-finserv-backend:staging-latest -f backend/Dockerfile .
+   ```
+3. Authenticate to Amazon ECR and push container image:
+   ```bash
+   aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin <AWS_ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com
+   docker tag sryn-finserv-backend:staging-latest <AWS_ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com/sryn-finserv-backend:staging-latest
+   docker push <AWS_ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com/sryn-finserv-backend:staging-latest
    ```
 
 ### Step 2: Infrastructure Deployment via CDK
@@ -78,20 +85,15 @@
    npx cdk deploy --all -c env=staging --require-approval broadening
    ```
 
-### Step 3: Staging Database Migration Execution
-1. Retrieve RDS PostgreSQL endpoint from CDK output (`Sryn-staging-DatabaseStack.RDSInstanceEndpoint`).
-2. Run database migration script targeting staging RDS instance:
-   ```bash
-   DB_HOST=<STAGING_RDS_ENDPOINT> DB_NAME=sryn_finserv_staging DB_USER=sryn_staging_user DB_PASSWORD=<SECURE_STAGING_PASSWORD> node backend/dist/database/runner.js
-   ```
-
-### Step 4: Container Build & Backend API Deployment
-1. Build Docker container image for backend monolith:
-   ```bash
-   docker build -t sryn-backend-staging -f backend/Dockerfile .
-   ```
-2. Tag and push container image to AWS ECR staging repository.
-3. Trigger service update in AWS App Runner / ECS task definition.
+### Step 3: In-VPC Database Migration Execution
+Run the ephemeral ECS Fargate migration task inside the private/isolated VPC network:
+```bash
+aws ecs run-task \
+  --cluster sryn-finserv-cluster-staging \
+  --task-definition <MIGRATION_TASK_DEF_ARN_FROM_CDK_OUTPUT> \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[<PRIVATE_ISOLATED_SUBNET_ID>],securityGroups=[<ECS_TASK_SG_ID>]}"
+```
 
 ---
 
@@ -108,5 +110,5 @@
    - Execute test API call to create test application draft and verify record persistence in RDS.
 4. **S3 Document Upload:**
    - Request presigned S3 URL from `/api/v1/documents/presigned-url` and verify upload to staging S3 bucket.
-5. **RBAC & Security Verification:**
+5. **RBAC & WAF Verification:**
    - Confirm unauthenticated or unauthorized requests to `/api/v1/hierarchy/manager/dashboard` return HTTP 401/403.
