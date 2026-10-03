@@ -290,7 +290,7 @@ export class ApiStack extends cdk.Stack {
 
     this.migrationTaskDef.addContainer('MigrationContainer', {
       image: ecs.ContainerImage.fromEcrRepository(backendRepo, `${config.environment}-latest`),
-      command: ['node', 'dist/database/runner.js'],
+      command: ['node', 'backend/dist/database/runner.js'],
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'migration',
         logGroup,
